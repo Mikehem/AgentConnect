@@ -2,7 +2,7 @@
 
 import json
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ValidationError
 
@@ -246,3 +246,20 @@ class CapabilitiesService:
             }
             for i in range(min(limit, 5))
         ]
+
+
+# Standalone functions for compatibility with tests
+async def discover_server_capabilities(server_id: str, current_user: Any) -> McpCapabilityDiscovery:
+    """Standalone function for discovering server capabilities."""
+    from app.core.database import get_db
+    db = next(get_db())
+    service = CapabilitiesService(db)
+    return await service.discover_capabilities(server_id, current_user)
+
+
+async def test_capability_method(capability_id: str, test_data: Dict[str, Any]) -> CapabilityTestResult:
+    """Standalone function for testing capability methods."""
+    from app.core.database import get_db
+    db = next(get_db())
+    service = CapabilitiesService(db)
+    return await service.test_capability(capability_id, test_data)

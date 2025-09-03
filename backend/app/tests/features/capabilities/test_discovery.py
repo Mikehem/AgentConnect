@@ -10,21 +10,30 @@ pytestmark = pytest.mark.capabilities
 class TestCapabilityDiscovery:
     """Test MCP server capability discovery."""
 
-    @patch('app.services.capabilities.discover_server_capabilities')
+    @patch('app.services.mcp_registration.McpRegistrationService.discover_capabilities')
     def test_discover_capabilities_success(self, mock_discover, client, sample_user, sample_mcp_server):
         """Test successful capability discovery."""
-        mock_discover.return_value = [
-            {
-                "name": "filesystem",
-                "version": "1.0.0",
-                "description": "File system operations"
+        from app.schemas.mcp_protocol import McpCapabilityDiscovery
+        mock_discover.return_value = McpCapabilityDiscovery(
+            server_id=str(sample_mcp_server.id),
+            discovered_at="2024-01-01T00:00:00Z",
+            capabilities={
+                "filesystem": {
+                    "name": "filesystem",
+                    "version": "1.0.0",
+                    "description": "File system operations"
+                },
+                "github": {
+                    "name": "github",
+                    "version": "1.0.0",
+                    "description": "GitHub integration"
+                }
             },
-            {
-                "name": "github",
-                "version": "1.0.0", 
-                "description": "GitHub integration"
-            }
-        ]
+            resources=[],
+            tools=[],
+            errors=[],
+            warnings=[]
+        )
         
         client.headers.update({"Authorization": f"Bearer {sample_user.id}"})
         
@@ -34,7 +43,8 @@ class TestCapabilityDiscovery:
         data = response.json()
         assert "capabilities" in data
         assert len(data["capabilities"]) == 2
-        assert data["capabilities"][0]["name"] == "filesystem"
+        assert "filesystem" in data["capabilities"]
+        assert data["capabilities"]["filesystem"]["name"] == "filesystem"
 
     @patch('app.services.capabilities.discover_server_capabilities')
     def test_discover_capabilities_server_unavailable(self, mock_discover, client, sample_user, sample_mcp_server):

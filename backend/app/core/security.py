@@ -352,3 +352,68 @@ def validate_organization_access(user_org_id: str, target_org_id: str) -> bool:
         True if access is allowed, False otherwise
     """
     return user_org_id == target_org_id
+
+
+def create_access_token(user_data: Dict[str, Any]) -> str:
+    """
+    Create JWT access token.
+    
+    Args:
+        user_data: User data to encode in token
+    
+    Returns:
+        JWT access token
+    """
+    from datetime import timedelta
+    
+    to_encode = user_data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=30)
+    to_encode.update({"exp": expire})
+    
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    return encoded_jwt
+
+
+def get_current_user(token: str) -> Dict[str, Any]:
+    """
+    Get current user from JWT token.
+    
+    Args:
+        token: JWT token
+    
+    Returns:
+        User data from token
+    
+    Raises:
+        HTTPException: If token is invalid
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired"
+        )
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+
+
+def verify_token(token: str) -> Dict[str, Any]:
+    """Verify JWT token and return payload."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired"
+        )
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )

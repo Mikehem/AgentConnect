@@ -199,7 +199,12 @@ class TestSessionManagement:
     def test_session_validation(self, client):
         """Test session validation."""
         with patch('app.services.auth.validate_session') as mock_validate:
-            mock_validate.return_value = True
+            mock_validate.return_value = {
+                "session_id": "valid_session_id",
+                "user_id": "user-123",
+                "org_id": "org-123",
+                "valid": True
+            }
             
             client.headers.update({"X-Session-ID": "valid_session_id"})
             response = client.get("/v1/mcp/servers")

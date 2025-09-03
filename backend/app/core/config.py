@@ -23,11 +23,28 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO")
     ENVIRONMENT: str = Field(default="development")
 
-    # OAuth 2.1 / OIDC
-    OIDC_ISSUER: str = Field(default="https://auth.example.com", description="Expected token issuer")
-    OIDC_AUDIENCE: str = Field(default="sprintconnect", description="Expected token audience")
-    OIDC_JWKS_URL: str = Field(default="https://auth.example.com/.well-known/jwks.json")
-    ALLOWED_JWT_ALGS: list[str] = Field(default_factory=lambda: ["RS256", "ES256"])
+    # OAuth 2.1 / OIDC - Logto Cloud Configuration
+    LOGTO_ENDPOINT: str = Field(default="https://your-tenant.logto.app", description="Logto Cloud endpoint")
+    LOGTO_APP_ID: str = Field(default="", description="Logto application ID")
+    LOGTO_APP_SECRET: SecretStr = Field(default=SecretStr(""), description="Logto application secret")
+    
+    # Derived OIDC settings from Logto
+    @property
+    def OIDC_ISSUER(self) -> str:
+        """Get OIDC issuer from Logto endpoint."""
+        return self.LOGTO_ENDPOINT
+    
+    @property
+    def OIDC_AUDIENCE(self) -> str:
+        """Get OIDC audience from Logto app ID."""
+        return self.LOGTO_APP_ID
+    
+    @property
+    def OIDC_JWKS_URL(self) -> str:
+        """Get JWKS URL from Logto endpoint."""
+        return f"{self.LOGTO_ENDPOINT}/oidc/jwks"
+    
+    ALLOWED_JWT_ALGS: str = Field(default="RS256,ES256")
     JWKS_CACHE_TTL_SECONDS: int = Field(default=300)
     
     # Database
@@ -54,15 +71,15 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "SprintConnect API"
     
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000"])
+    BACKEND_CORS_ORIGINS: str = Field(default="http://localhost:3000")
     
     # Rate Limiting
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(default=60)
     RATE_LIMIT_BURST_SIZE: int = Field(default=100)
     
     # MCP Server Configuration
-    ALLOWED_EGRESS_HOSTS: List[str] = Field(
-        default=["api.openai.com", "api.anthropic.com"]
+    ALLOWED_EGRESS_HOSTS: str = Field(
+        default="api.openai.com,api.anthropic.com"
     )
     MCP_SERVER_TIMEOUT_SECONDS: int = Field(default=30)
     
@@ -75,25 +92,29 @@ class Settings(BaseSettings):
     # Monitoring
     PROMETHEUS_METRICS_PORT: int = Field(default=9090)
     
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @field_validator("BACKEND_CORS_ORIGINS", mode="after")
     @classmethod
     def assemble_cors_origins(cls, v):
-        """Parse CORS origins from string or list."""
-        if isinstance(v, str) and not v.startswith("["):
+        """Parse CORS origins from string to list."""
+        if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
+        return v
     
-    @field_validator("ALLOWED_EGRESS_HOSTS", mode="before")
+    @field_validator("ALLOWED_EGRESS_HOSTS", mode="after")
     @classmethod
     def assemble_egress_hosts(cls, v):
-        """Parse egress hosts from string or list."""
-        if isinstance(v, str) and not v.startswith("["):
+        """Parse egress hosts from string to list."""
+        if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
+        return v
+    
+    @field_validator("ALLOWED_JWT_ALGS", mode="after")
+    @classmethod
+    def assemble_jwt_algs(cls, v):
+        """Parse JWT algorithms from string to list."""
+        if isinstance(v, str):
+            return [i.strip() for i in v.split(",")]
+        return v
 
 
 # Global settings instance

@@ -1,10 +1,11 @@
 """Authentication API endpoints."""
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from typing import Optional
 
 from app.services.auth import auth_service
+from app.services.logto_service import logto_service
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,6 +18,59 @@ async def oidc_login_redirect():
     """Redirect to OIDC provider for authentication."""
     # Mock OIDC redirect
     return RedirectResponse(url="https://auth.example.com/login?redirect_uri=/auth/callback")
+
+
+@router.get("/oidc/login")
+async def oidc_login_redirect_specific():
+    """Redirect to Logto Cloud for authentication."""
+    try:
+        redirect_uri = "http://localhost:8000/v1/auth/oidc/callback"
+        sign_in_url = await logto_service.get_sign_in_url(redirect_uri)
+        return RedirectResponse(url=sign_in_url, status_code=302)
+    except Exception as e:
+        logger.error(f"Failed to get sign-in URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate authentication"
+        )
+
+
+@router.post("/login")
+async def login(request: Request):
+    """Login with email and password."""
+    data = await request.json()
+    email = data.get("email")
+    password = data.get("password")
+    
+    if not email or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and password are required"
+        )
+    
+    # Mock authentication
+    if email == "test@example.com" and password == "password":
+        user_data = {
+            "user_id": "user-123",
+            "org_id": "org-123",
+            "email": email,
+            "roles": ["admin"]
+        }
+        
+        access_token = auth_service.create_access_token(user_data)
+        session_data = auth_service.create_session(user_data)
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "session_id": session_data.get("session_id"),
+            "user": user_data
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials"
+        )
 
 
 @router.get("/callback")
@@ -51,10 +105,67 @@ async def oidc_callback(code: Optional[str] = None, error: Optional[str] = None)
     }
 
 
+@router.get("/oidc/callback")
+async def oidc_callback_specific(code: Optional[str] = None, error: Optional[str] = None):
+    """Handle Logto OIDC callback."""
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OIDC authentication failed: {error}"
+        )
+    
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authorization code not provided"
+        )
+    
+    try:
+        # Handle callback with Logto
+        redirect_uri = "http://localhost:8000/v1/auth/oidc/callback"
+        token_data = await logto_service.handle_callback(code, redirect_uri)
+        
+        # Extract user information
+        user_info = token_data.get("user_info", {})
+        user_data = {
+            "user_id": user_info.get("sub", "unknown"),
+            "org_id": user_info.get("org_id", "default-org"),
+            "email": user_info.get("email", ""),
+            "name": user_info.get("name", ""),
+            "roles": user_info.get("roles", ["user"])
+        }
+        
+        return {
+            "access_token": token_data.get("access_token"),
+            "id_token": token_data.get("id_token"),
+            "token_type": "bearer",
+            "user": user_data,
+            "expires_in": token_data.get("expires_in", 3600)
+        }
+    except Exception as e:
+        logger.error(f"OIDC callback failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OIDC authentication failed: {str(e)}"
+        )
+
+
 @router.post("/logout")
 async def logout():
     """Logout user session."""
     return {"message": "Logged out successfully"}
+
+
+@router.post("/oidc/logout")
+async def oidc_logout():
+    """Logto OIDC logout endpoint."""
+    try:
+        post_logout_redirect_uri = "http://localhost:8000/"
+        sign_out_url = await logto_service.get_sign_out_url(post_logout_redirect_uri)
+        return {"logout_url": sign_out_url, "message": "Redirect to logout URL"}
+    except Exception as e:
+        logger.error(f"Failed to get sign-out URL: {e}")
+        return {"message": "Logged out successfully"}
 
 
 @router.post("/validate")

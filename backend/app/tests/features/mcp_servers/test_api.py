@@ -217,7 +217,7 @@ class TestMcpServerAPIDelete:
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "Server deleted successfully"
+        assert data["message"] == "MCP server deleted successfully"
 
     def test_delete_server_not_found(self, client, sample_user):
         """Test server deletion with non-existent ID."""

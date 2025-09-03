@@ -445,8 +445,9 @@ class McpRegistrationService:
         )
         
         # Get server
+        normalized_server_id = self._normalize_uuid(server_id)
         server = self.db.query(McpServer).filter(
-            McpServer.id == server_id,
+            McpServer.id == normalized_server_id,
             McpServer.org_id == current_user.org_id,
             McpServer.deleted_at.is_(None)
         ).first()
@@ -457,7 +458,7 @@ class McpRegistrationService:
         try:
             # Get auth config
             credential = self.db.query(McpCredential).filter(
-                McpCredential.mcp_server_id == server_id
+                McpCredential.mcp_server_id == normalized_server_id
             ).first()
             
             auth_config = None
@@ -479,7 +480,7 @@ class McpRegistrationService:
             
             # Get all capabilities
             capabilities = self.db.query(McpCapability).filter(
-                McpCapability.mcp_server_id == server_id
+                McpCapability.mcp_server_id == normalized_server_id
             ).all()
             
             return McpCapabilityDiscovery(
@@ -501,3 +502,15 @@ class McpRegistrationService:
                 error=str(e)
             )
             raise
+    
+    def _normalize_uuid(self, uuid_value: str) -> uuid.UUID:
+        """Convert string UUID to UUID object for database queries."""
+        if isinstance(uuid_value, uuid.UUID):
+            return uuid_value
+        try:
+            return uuid.UUID(str(uuid_value))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid UUID format"
+            )

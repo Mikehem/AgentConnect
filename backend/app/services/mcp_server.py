@@ -552,7 +552,7 @@ class McpServerService:
             )
             
             return {
-                "message": "Server deleted successfully",
+                "message": "MCP server deleted successfully",
                 "deleted_at": server.deleted_at,
                 "cleanup_job_id": None  # TODO: Implement cleanup job
             }

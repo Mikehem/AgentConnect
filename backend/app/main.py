@@ -56,24 +56,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware
-app.add_middleware(AuthGatewayMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Add trusted host middleware for production
-if not settings.DEBUG:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=["*"]  # TODO: Configure allowed hosts
-    )
-
-
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     """Add processing time header and metrics."""
@@ -129,6 +111,23 @@ async def log_requests(request: Request, call_next):
     )
     
     return response
+
+# Add middleware (order matters - last added runs first)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(AuthGatewayMiddleware)
+
+# Add trusted host middleware for production
+if not settings.DEBUG:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["*"]  # TODO: Configure allowed hosts
+    )
 
 
 @app.exception_handler(Exception)
