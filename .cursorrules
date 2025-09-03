@@ -1,0 +1,912 @@
+# SprintConnect Development Rules
+
+## Project Overview
+SprintConnect is an enterprise-grade discovery and testing platform for MCP (Model Context Protocol) servers. This project follows strict development guidelines to ensure security, maintainability, and scalability.
+
+## Core Principles
+
+### Agentic and LLM-Driven Architecture
+- All decision-making must leverage LLM intelligence rather than hardcoded business logic
+- No server-specific hardcoding - use generic, capability-based approaches
+- Dynamic tool selection based on capabilities and context
+- Self-learning and adaptive system design
+
+### Security-First Development
+- Implement zero-trust architecture patterns
+- Use least privilege access for all components
+- Encrypt all sensitive data at rest and in transit
+- Comprehensive audit logging for all actions
+- Input validation and output sanitization everywhere
+
+### Enterprise-Grade Standards
+- Multi-tenant architecture with complete org isolation
+- Comprehensive error handling and graceful degradation
+- Performance monitoring and observability built-in
+- Scalable and maintainable code architecture
+
+## Technology Stack
+
+### Backend (Python/FastAPI)
+- **Framework**: FastAPI with Pydantic v2 for validation
+- **Database**: PostgreSQL 14+ with SQLAlchemy 2.x
+- **Caching**: Redis for sessions and application cache
+- **Dependencies**: Poetry for package management
+- **Authentication**: OIDC/OAuth2 with JWT tokens
+- **Background Tasks**: Celery with Redis broker
+- **Secrets**: HashiCorp Vault integration
+
+### Frontend (React/TypeScript)
+- **Framework**: React 18 with TypeScript
+- **Build Tool**: Vite with SWC for fast compilation
+- **State Management**: Zustand or Redux Toolkit
+- **Styling**: Component library with CSS modules
+- **Authentication**: OIDC with PKCE flow
+- **Real-time**: WebSocket for chat streaming
+
+### Infrastructure
+- **Containerization**: Docker with multi-stage builds
+- **Orchestration**: Kubernetes with Helm charts
+- **Monitoring**: Prometheus + Grafana + Jaeger
+- **CI/CD**: GitHub Actions with security scanning
+
+## Code Style and Quality
+
+### Python Backend Rules
+
+#### File Organization
+```
+backend/
+├── app/
+│   ├── api/          # API route definitions
+│   ├── core/         # Core configuration and utilities
+│   ├── models/       # SQLAlchemy models
+│   ├── schemas/      # Pydantic schemas
+│   ├── services/     # Business logic services
+│   ├── workers/      # Background task workers
+│   └── tests/        # Test files
+├── alembic/          # Database migrations
+├── pyproject.toml    # Poetry configuration
+└── README.md
+```
+
+#### Coding Standards
+- **Formatting**: Use Black (line length 88) and isort
+- **Linting**: Use Ruff with comprehensive rule set
+- **Type Hints**: Mandatory for all functions and classes
+- **Docstrings**: Google-style docstrings for all public APIs
+- **Error Handling**: Comprehensive exception handling with proper logging
+
+#### Example Code Pattern
+```python
+from typing import Optional, List
+from uuid import UUID
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from app.models.mcp_server import McpServer
+from app.core.security import get_current_user
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+class McpServerCreate(BaseModel):
+    """Schema for creating a new MCP server."""
+    
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    base_url: str = Field(..., regex=r'^https?://')
+    environment: str = Field(..., regex=r'^(development|staging|production)$')
+    tags: List[str] = Field(default_factory=list, max_items=20)
+
+class McpServerService:
+    """Service for managing MCP servers."""
+    
+    def __init__(self, db: Session):
+        self.db = db
+    
+    async def create_server(
+        self,
+        server_data: McpServerCreate,
+        current_user: User
+    ) -> McpServer:
+        """Create a new MCP server with validation and audit logging."""
+        try:
+            # Validate permissions
+            if not current_user.has_permission("mcp:servers:create"):
+                raise PermissionError("Insufficient permissions")
+            
+            # Create server instance
+            server = McpServer(
+                org_id=current_user.org_id,
+                owner_user_id=current_user.id,
+                **server_data.dict()
+            )
+            
+            # Validate URL accessibility
+            await self._validate_server_url(server.base_url)
+            
+            # Save to database
+            self.db.add(server)
+            self.db.commit()
+            self.db.refresh(server)
+            
+            # Log audit event
+            await audit_logger.log_event(
+                event_type="mcp.server.create",
+                actor_id=current_user.id,
+                target_id=server.id,
+                result="success"
+            )
+            
+            logger.info(f"MCP server created: {server.id}")
+            return server
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to create MCP server: {e}")
+            raise
+    
+    async def _validate_server_url(self, url: str) -> None:
+        """Validate server URL for security (SSRF protection)."""
+        # Implementation with SSRF protection
+        pass
+```
+
+### Frontend TypeScript Rules
+
+#### File Organization
+```
+frontend/
+├── src/
+│   ├── components/   # Reusable UI components
+│   ├── pages/        # Route-level components
+│   ├── hooks/        # Custom React hooks
+│   ├── services/     # API client services
+│   ├── stores/       # State management
+│   ├── types/        # TypeScript type definitions
+│   ├── utils/        # Utility functions
+│   └── styles/       # Global styles and themes
+├── public/           # Static assets
+├── package.json
+└── README.md
+```
+
+#### Coding Standards
+- **TypeScript**: Strict mode enabled, no `any` types
+- **Components**: Functional components with hooks
+- **Props**: Interface definitions for all component props
+- **State**: Typed state management with proper error handling
+- **API**: Type-safe API client with error boundaries
+
+#### Example Code Pattern
+```typescript
+import React, { useState, useCallback } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { McpServerCreate, McpServer } from '../types/mcp';
+import { createMcpServer } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
+import { toast } from '../utils/toast';
+
+interface ServerFormProps {
+  onSuccess?: (server: McpServer) => void;
+  initialData?: Partial<McpServerCreate>;
+}
+
+export const ServerForm: React.FC<ServerFormProps> = ({
+  onSuccess,
+  initialData
+}) => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  const [formData, setFormData] = useState<McpServerCreate>({
+    name: '',
+    description: '',
+    base_url: '',
+    environment: 'development',
+    tags: [],
+    ...initialData
+  });
+
+  const createServerMutation = useMutation({
+    mutationFn: createMcpServer,
+    onSuccess: (server) => {
+      queryClient.invalidateQueries(['mcp-servers']);
+      toast.success('Server created successfully');
+      onSuccess?.(server);
+    },
+    onError: (error) => {
+      toast.error(`Failed to create server: ${error.message}`);
+    }
+  });
+
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate required permissions
+    if (!user?.hasPermission('mcp:servers:create')) {
+      toast.error('Insufficient permissions');
+      return;
+    }
+
+    createServerMutation.mutate(formData);
+  }, [formData, user, createServerMutation]);
+
+  const handleInputChange = useCallback((
+    field: keyof McpServerCreate
+  ) => (value: string | string[]) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  return (
+    <form onSubmit={handleSubmit} className="server-form">
+      {/* Form implementation */}
+    </form>
+  );
+};
+```
+
+## Security Requirements
+
+### Authentication and Authorization
+- **NEVER** hardcode credentials or API keys
+- Use environment variables for all configuration
+- Implement proper RBAC with granular permissions
+- Validate all user inputs with Pydantic/Zod schemas
+- Use CSRF protection for state-changing operations
+
+### Data Protection
+- Encrypt all PII and sensitive data
+- Use parameterized queries to prevent SQL injection
+- Implement proper session management
+- Store secrets in HashiCorp Vault only
+- Log all security-relevant events
+
+### API Security
+- Rate limiting on all endpoints
+- Input validation and sanitization
+- Proper HTTP status codes and error messages
+- No sensitive data in error responses
+- CORS configuration for frontend
+
+### Example Security Implementation
+```python
+from app.core.security import require_permission, audit_log
+from app.core.validation import validate_input
+from app.schemas.security import SecureRequest
+
+@router.post("/mcp/servers")
+@require_permission("mcp:servers:create")
+@audit_log("mcp.server.create")
+async def create_server(
+    request: SecureRequest[McpServerCreate],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create MCP server with security validation."""
+    
+    # Validate input against security policies
+    await validate_input(request.data, current_user)
+    
+    # Check organization quotas
+    if not await check_org_quota(current_user.org_id, "servers"):
+        raise HTTPException(
+            status_code=429,
+            detail="Organization server quota exceeded"
+        )
+    
+    # Create server with security context
+    server = await mcp_service.create_server(
+        request.data,
+        current_user,
+        security_context=request.context
+    )
+    
+    return server
+```
+
+## Database Guidelines
+
+### Schema Design
+- Use UUIDs for primary keys
+- Implement proper foreign key constraints
+- Add appropriate indexes for query patterns
+- Use JSON/JSONB for flexible metadata
+- Implement audit triggers for sensitive tables
+
+### Migrations
+- Always use Alembic for schema changes
+- Test migrations on development data
+- Include rollback procedures
+- Document breaking changes
+- Review migrations in code review
+
+### Performance
+- Monitor slow queries regularly
+- Use appropriate indexes
+- Implement connection pooling
+- Consider read replicas for analytics
+- Partition large tables by date
+
+### Example Migration
+```python
+"""Add MCP server health tracking
+
+Revision ID: abc123def456
+Revises: prev_revision
+Create Date: 2024-01-15 10:30:00.000000
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers
+revision = 'abc123def456'
+down_revision = 'prev_revision'
+branch_labels = None
+depends_on = None
+
+def upgrade() -> None:
+    """Add health tracking to MCP servers."""
+    
+    # Add health status columns
+    op.add_column('mcp_servers', 
+        sa.Column('health_status', sa.String(20), 
+                 server_default='unknown', nullable=False))
+    op.add_column('mcp_servers', 
+        sa.Column('last_health_check_at', sa.TIMESTAMPTZ))
+    
+    # Add check constraint
+    op.create_check_constraint(
+        'mcp_servers_health_status_check',
+        'mcp_servers',
+        "health_status IN ('healthy', 'unhealthy', 'degraded', 'unknown')"
+    )
+    
+    # Create health checks table
+    op.create_table('mcp_health_checks',
+        sa.Column('id', postgresql.UUID(), nullable=False),
+        sa.Column('mcp_server_id', postgresql.UUID(), nullable=False),
+        sa.Column('status', sa.String(20), nullable=False),
+        sa.Column('response_time_ms', sa.Integer()),
+        sa.Column('error_message', sa.Text()),
+        sa.Column('checked_at', sa.TIMESTAMPTZ(), nullable=False),
+        sa.ForeignKeyConstraint(['mcp_server_id'], ['mcp_servers.id'], 
+                               ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    
+    # Add indexes
+    op.create_index('idx_mcp_health_checks_server_id', 
+                   'mcp_health_checks', ['mcp_server_id'])
+    op.create_index('idx_mcp_health_checks_checked_at', 
+                   'mcp_health_checks', ['checked_at'])
+
+def downgrade() -> None:
+    """Remove health tracking."""
+    
+    op.drop_table('mcp_health_checks')
+    op.drop_column('mcp_servers', 'last_health_check_at')
+    op.drop_column('mcp_servers', 'health_status')
+```
+
+## Testing Requirements
+
+### Backend Testing
+```python
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from app.main import app
+from app.core.config import settings
+from app.tests.utils import create_test_user, create_test_server
+
+@pytest.fixture
+def client():
+    """Test client with authentication."""
+    with TestClient(app) as c:
+        yield c
+
+@pytest.fixture
+def authenticated_user(db: Session):
+    """Create authenticated test user."""
+    return create_test_user(db, roles=["engineer"])
+
+class TestMcpServerAPI:
+    """Test MCP server API endpoints."""
+    
+    def test_create_server_success(
+        self, 
+        client: TestClient, 
+        authenticated_user: User
+    ):
+        """Test successful server creation."""
+        
+        # Set authentication context
+        client.headers.update({
+            "Authorization": f"Bearer {authenticated_user.token}"
+        })
+        
+        server_data = {
+            "name": "test-server",
+            "description": "Test MCP server",
+            "base_url": "https://test.example.com",
+            "environment": "development",
+            "tags": ["test"]
+        }
+        
+        response = client.post("/api/v1/mcp/servers", json=server_data)
+        
+        assert response.status_code == 201
+        assert response.json()["name"] == "test-server"
+        assert response.json()["org_id"] == str(authenticated_user.org_id)
+    
+    def test_create_server_validation_error(
+        self, 
+        client: TestClient, 
+        authenticated_user: User
+    ):
+        """Test server creation with invalid data."""
+        
+        client.headers.update({
+            "Authorization": f"Bearer {authenticated_user.token}"
+        })
+        
+        # Invalid URL
+        server_data = {
+            "name": "test-server",
+            "base_url": "invalid-url",
+            "environment": "development"
+        }
+        
+        response = client.post("/api/v1/mcp/servers", json=server_data)
+        
+        assert response.status_code == 422
+        assert "base_url" in response.json()["detail"][0]["loc"]
+    
+    def test_create_server_permission_denied(
+        self, 
+        client: TestClient, 
+        db: Session
+    ):
+        """Test server creation without permissions."""
+        
+        # Create user without server creation permission
+        user = create_test_user(db, roles=["viewer"])
+        client.headers.update({
+            "Authorization": f"Bearer {user.token}"
+        })
+        
+        server_data = {
+            "name": "test-server",
+            "base_url": "https://test.example.com",
+            "environment": "development"
+        }
+        
+        response = client.post("/api/v1/mcp/servers", json=server_data)
+        
+        assert response.status_code == 403
+        assert "permission" in response.json()["detail"].lower()
+```
+
+### Frontend Testing
+```typescript
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ServerForm } from '../ServerForm';
+import { AuthProvider } from '../../../contexts/AuthContext';
+import { createMockUser } from '../../../tests/utils';
+
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } }
+  });
+  
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider value={{ user: createMockUser() }}>
+        {children}
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+};
+
+describe('ServerForm', () => {
+  it('should submit form with valid data', async () => {
+    const onSuccess = jest.fn();
+    const Wrapper = createWrapper();
+    
+    render(
+      <ServerForm onSuccess={onSuccess} />,
+      { wrapper: Wrapper }
+    );
+    
+    // Fill form
+    fireEvent.change(screen.getByLabelText(/server name/i), {
+      target: { value: 'Test Server' }
+    });
+    
+    fireEvent.change(screen.getByLabelText(/base url/i), {
+      target: { value: 'https://test.example.com' }
+    });
+    
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: /create server/i }));
+    
+    // Wait for success
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Test Server',
+          base_url: 'https://test.example.com'
+        })
+      );
+    });
+  });
+  
+  it('should show validation errors for invalid input', async () => {
+    const Wrapper = createWrapper();
+    
+    render(<ServerForm />, { wrapper: Wrapper });
+    
+    // Submit empty form
+    fireEvent.click(screen.getByRole('button', { name: /create server/i }));
+    
+    // Check for validation errors
+    await waitFor(() => {
+      expect(screen.getByText(/server name is required/i)).toBeInTheDocument();
+      expect(screen.getByText(/base url is required/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+## Output and Artifact Management
+
+### File Organization Convention
+All run artifacts, exports, and generated files MUST be stored under:
+```
+outputs/
+├── 2024-01-15T10-30-00/    # Timestamp-based directories (ISO format)
+│   ├── chat-exports/
+│   │   ├── session-abc123.json
+│   │   └── session-def456.csv
+│   ├── discovery-results/
+│   │   ├── server-xyz789-capabilities.json
+│   │   └── discovery-summary.md
+│   ├── health-reports/
+│   │   ├── daily-health-2024-01-15.csv
+│   │   └── server-status-report.pdf
+│   ├── usage-analytics/
+│   │   ├── org-usage-summary.json
+│   │   └── cost-attribution.csv
+│   └── backup-manifests/
+│       ├── database-backup-manifest.txt
+│       └── vault-backup-manifest.txt
+├── 2024-01-14T09-15-30/    # Previous day's outputs
+└── latest/                 # Symlink to most recent timestamp directory
+```
+
+### Implementation Example
+```python
+from datetime import datetime
+from pathlib import Path
+import json
+
+class OutputManager:
+    """Manages output files with timestamp organization."""
+    
+    def __init__(self, base_path: str = "outputs"):
+        self.base_path = Path(base_path)
+        self.current_session = self._create_session_dir()
+    
+    def _create_session_dir(self) -> Path:
+        """Create timestamped session directory."""
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        session_dir = self.base_path / timestamp
+        session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Update 'latest' symlink
+        latest_link = self.base_path / "latest"
+        if latest_link.exists() or latest_link.is_symlink():
+            latest_link.unlink()
+        latest_link.symlink_to(session_dir.name)
+        
+        return session_dir
+    
+    def save_chat_export(self, session_id: str, data: dict) -> Path:
+        """Save chat session export."""
+        export_dir = self.current_session / "chat-exports"
+        export_dir.mkdir(exist_ok=True)
+        
+        file_path = export_dir / f"session-{session_id}.json"
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=2, default=str)
+        
+        return file_path
+    
+    def save_discovery_results(self, server_id: str, capabilities: list) -> Path:
+        """Save capability discovery results."""
+        discovery_dir = self.current_session / "discovery-results"
+        discovery_dir.mkdir(exist_ok=True)
+        
+        file_path = discovery_dir / f"server-{server_id}-capabilities.json"
+        with open(file_path, 'w') as f:
+            json.dump({
+                "server_id": server_id,
+                "discovered_at": datetime.now().isoformat(),
+                "capabilities": capabilities
+            }, f, indent=2)
+        
+        return file_path
+```
+
+## Performance Guidelines
+
+### Backend Performance
+- Use async/await for I/O operations
+- Implement proper connection pooling
+- Cache frequently accessed data
+- Use background tasks for heavy operations
+- Monitor database query performance
+
+### Frontend Performance
+- Implement code splitting and lazy loading
+- Use React.memo and useMemo appropriately
+- Optimize bundle size with tree shaking
+- Implement virtual scrolling for large lists
+- Cache API responses with React Query
+
+### Monitoring Requirements
+```python
+from prometheus_client import Counter, Histogram, Gauge
+import time
+from functools import wraps
+
+# Metrics
+REQUEST_COUNT = Counter('http_requests_total', 'HTTP requests', ['method', 'endpoint', 'status'])
+REQUEST_DURATION = Histogram('http_request_duration_seconds', 'HTTP request duration')
+ACTIVE_SESSIONS = Gauge('active_chat_sessions', 'Active chat sessions')
+
+def monitor_performance(func):
+    """Decorator to monitor function performance."""
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = await func(*args, **kwargs)
+            REQUEST_COUNT.labels(method='POST', endpoint=func.__name__, status='success').inc()
+            return result
+        except Exception as e:
+            REQUEST_COUNT.labels(method='POST', endpoint=func.__name__, status='error').inc()
+            raise
+        finally:
+            REQUEST_DURATION.observe(time.time() - start_time)
+    return wrapper
+```
+
+## Error Handling Standards
+
+### Backend Error Handling
+```python
+from fastapi import HTTPException
+from app.core.logging import get_logger
+from app.core.exceptions import (
+    McpServerError,
+    PermissionDeniedError,
+    ValidationError
+)
+
+logger = get_logger(__name__)
+
+class ErrorHandler:
+    """Centralized error handling."""
+    
+    @staticmethod
+    def handle_mcp_error(error: McpServerError) -> HTTPException:
+        """Handle MCP server specific errors."""
+        logger.error(f"MCP server error: {error}")
+        
+        if "connection" in str(error).lower():
+            return HTTPException(
+                status_code=503,
+                detail={
+                    "error": "service_unavailable",
+                    "message": "MCP server is currently unavailable",
+                    "retry_after": 60
+                }
+            )
+        
+        return HTTPException(
+            status_code=500,
+            detail={
+                "error": "mcp_server_error",
+                "message": "MCP server operation failed"
+            }
+        )
+    
+    @staticmethod
+    def handle_permission_error(error: PermissionDeniedError) -> HTTPException:
+        """Handle permission errors."""
+        logger.warning(f"Permission denied: {error}")
+        
+        return HTTPException(
+            status_code=403,
+            detail={
+                "error": "permission_denied",
+                "message": "Insufficient permissions for this operation",
+                "required_permissions": error.required_permissions
+            }
+        )
+```
+
+### Frontend Error Handling
+```typescript
+import { toast } from '../utils/toast';
+import { logger } from '../utils/logger';
+
+export class ErrorHandler {
+  static handle(error: unknown, context: string): void {
+    logger.error(`Error in ${context}:`, error);
+    
+    if (error instanceof ApiError) {
+      switch (error.status) {
+        case 401:
+          toast.error('Authentication required');
+          // Redirect to login
+          break;
+        case 403:
+          toast.error('Insufficient permissions');
+          break;
+        case 429:
+          toast.error('Rate limit exceeded. Please try again later.');
+          break;
+        case 503:
+          toast.error('Service temporarily unavailable');
+          break;
+        default:
+          toast.error(`Operation failed: ${error.message}`);
+      }
+    } else {
+      toast.error('An unexpected error occurred');
+    }
+  }
+}
+
+// Usage in React components
+const handleAsyncOperation = useCallback(async () => {
+  try {
+    await riskyOperation();
+  } catch (error) {
+    ErrorHandler.handle(error, 'ServerCreation');
+  }
+}, []);
+```
+
+## Git and CI/CD Guidelines
+
+### Commit Message Format
+```
+type(scope): brief description
+
+Detailed explanation of the change, why it was made,
+and any context needed to understand it.
+
+Fixes #123
+```
+
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+### Branch Strategy
+- `main`: Production-ready code
+- `develop`: Integration branch for features
+- `feature/feature-name`: Feature development
+- `hotfix/issue-description`: Critical production fixes
+- `release/version-number`: Release preparation
+
+### Pre-commit Hooks
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+
+  - repo: https://github.com/psf/black
+    rev: 22.10.0
+    hooks:
+      - id: black
+        language_version: python3.11
+
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.254
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.0.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+```
+
+## Documentation Requirements
+
+### Code Documentation
+- All public APIs must have comprehensive docstrings
+- Include type hints for all parameters and return values
+- Document complex business logic with inline comments
+- Maintain up-to-date README files for each component
+
+### API Documentation
+- Use OpenAPI/Swagger specifications
+- Include examples for all endpoints
+- Document error responses and status codes
+- Provide SDK usage examples
+
+### Architecture Documentation
+- Keep architectural decisions recorded (ADRs)
+- Document integration patterns and data flows
+- Maintain deployment and operational procedures
+- Update security and compliance documentation
+
+## Compliance and Audit Requirements
+
+### Audit Logging
+Every significant action must be logged:
+```python
+await audit_logger.log_event(
+    event_type="mcp.server.create",
+    actor_id=current_user.id,
+    actor_type="user",
+    target_id=server.id,
+    target_type="mcp_server",
+    action="create",
+    result="success",
+    details={"server_name": server.name},
+    context={"ip_address": request.client.host}
+)
+```
+
+### Data Privacy
+- Implement data retention policies
+- Support GDPR data export and deletion
+- Encrypt all PII at rest and in transit
+- Minimize data collection to what's necessary
+
+### Security Scanning
+- Run SAST/DAST scans on all code changes
+- Dependency vulnerability scanning
+- Container image security scanning
+- Regular penetration testing
+
+## Development Workflow
+
+### Local Development Setup
+1. Install Poetry and Node.js
+2. Set up PostgreSQL and Redis locally
+3. Configure environment variables
+4. Run database migrations
+5. Start backend and frontend servers
+6. Run test suites
+
+### Code Review Requirements
+- All code must be reviewed by at least one other developer
+- Security-sensitive changes require security team review
+- Database migrations must be reviewed by DBA
+- Frontend UX changes should include design review
+
+### Testing Standards
+- Minimum 90% code coverage for backend
+- Unit tests for all business logic
+- Integration tests for API endpoints
+- E2E tests for critical user journeys
+- Performance tests for scalability requirements
+
+These rules ensure consistent, secure, and maintainable code across the SprintConnect platform. All developers must follow these guidelines, and any deviations require explicit approval through the code review process.
